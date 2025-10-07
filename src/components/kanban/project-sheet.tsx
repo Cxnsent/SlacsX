@@ -29,7 +29,60 @@ type FormValues = {
 };
 
 const PRIORITIES = ["Hoch", "Mittel", "Niedrig"];
-const STATUS = ["Nicht begonnen", "In Arbeit", "Abgeschlossen", "Wartet"];
+const DEFAULT_STATUSES = ["Nicht begonnen", "In Arbeit", "Abgeschlossen", "Wartet"];
+
+function collectStatusHints(source: unknown): string[] {
+  const collected = new Set<string>();
+
+  const visit = (value: unknown, keyPath: string[] = []) => {
+    if (Array.isArray(value)) {
+      value.forEach((item) => visit(item, keyPath));
+      return;
+    }
+
+    if (value && typeof value === "object") {
+      for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+        visit(nested, [...keyPath, key]);
+      }
+      return;
+    }
+
+    if (typeof value !== "string") {
+      return;
+    }
+
+    const shouldCollect = keyPath.some((key) => key.toLowerCase().includes("status"));
+    if (!shouldCollect) {
+      return;
+    }
+
+    value
+      .split(/[,\n]/)
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .forEach((entry) => collected.add(entry));
+  };
+
+  visit(source);
+
+  return Array.from(collected);
+}
+
+function formatMetadataValue(value: unknown) {
+  if (typeof value === "boolean") {
+    return value ? "Ja" : "Nein";
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => (item == null ? "-" : String(item))).join(", ");
+  }
+
+  if (value && typeof value === "object") {
+    return JSON.stringify(value);
+  }
+
+  return value == null || value === "" ? "-" : String(value);
+}
 
 function normalizeDate(value: string | null) {
   if (!value) return "";
@@ -76,9 +129,9 @@ export function ProjectSheet({
 
   const metadata = useMemo(() => {
     if (!project.metadaten || typeof project.metadaten !== "object") {
-      return {} as Record<string, string | boolean | number | null>;
+      return {} as Record<string, unknown>;
     }
-    return project.metadaten as Record<string, string | boolean | number | null>;
+    return project.metadaten as Record<string, unknown>;
   }, [project.metadaten]);
 
   const checklist = useMemo(() => {
@@ -90,6 +143,23 @@ export function ProjectSheet({
 
   const selectedKanzleiId = form.watch("kanzlei_id") ?? project.kanzlei_id;
   const assignedContacts = sachbearbeiter.filter((item) => item.kanzlei_id === selectedKanzleiId);
+
+  const statusOptions = useMemo(() => {
+    const options = new Set<string>(DEFAULT_STATUSES);
+    if (project.status) {
+      options.add(project.status);
+    }
+
+    collectStatusHints(project.metadaten).forEach((status) => {
+      if (status) {
+        options.add(status);
+      }
+    });
+
+    return Array.from(options);
+  }, [project.status, project.metadaten]);
+
+  const statusDatalistId = useMemo(() => `status-options-${project.id}`, [project.id]);
 
   const handleSubmit = form.handleSubmit(async (values) => {
     const response = await fetch("/api/projects/update", {
@@ -172,14 +242,20 @@ export function ProjectSheet({
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs text-slate-400">Status</label>
-                  <select
-                    {...form.register("status")}
-                    className="w-full rounded-xl bg-muted px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-accent/60"
-                  >
-                    {STATUS.map((status) => (
-                      <option key={status}>{status}</option>
-                    ))}
-                  </select>
+                  <div className="w-full">
+                    <input
+                      list={statusOptions.length ? statusDatalistId : undefined}
+                      {...form.register("status")}
+                      className="w-full rounded-xl bg-muted px-4 py-3 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-accent/60"
+                    />
+                    {statusOptions.length > 0 && (
+                      <datalist id={statusDatalistId}>
+                        {statusOptions.map((status) => (
+                          <option key={status} value={status} />
+                        ))}
+                      </datalist>
+                    )}
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs text-slate-400">Priorität</label>
@@ -252,9 +328,7 @@ export function ProjectSheet({
                   {Object.entries(metadata).map(([key, value]) => (
                     <div key={key} className="flex items-center justify-between gap-2">
                       <dt className="capitalize text-slate-500">{key.replace(/_/g, " ")}</dt>
-                      <dd className="text-right text-slate-300">
-                        {typeof value === "boolean" ? (value ? "Ja" : "Nein") : String(value ?? "-")}
-                      </dd>
+                      <dd className="text-right text-slate-300">{formatMetadataValue(value)}</dd>
                     </div>
                   ))}
                   {Object.keys(metadata).length === 0 && (
