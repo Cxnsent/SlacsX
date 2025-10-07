@@ -11,16 +11,27 @@ export function Providers({ children }: { children: ReactNode }) {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Supabase Umgebungsvariablen fehlen. Bitte NEXT_PUBLIC_SUPABASE_URL und NEXT_PUBLIC_SUPABASE_ANON_KEY setzen.");
-  }
+  const [supabase] = useState<SupabaseClient | null>(() => {
+    if (!supabaseUrl || !supabaseKey) {
+      console.error(
+        "Supabase Umgebungsvariablen fehlen. Bitte NEXT_PUBLIC_SUPABASE_URL und NEXT_PUBLIC_SUPABASE_ANON_KEY setzen."
+      );
+      return null;
+    }
 
-  const [supabase] = useState<SupabaseClient>(() =>
-    createBrowserSupabaseClient({
+    return createBrowserSupabaseClient({
       supabaseUrl,
       supabaseKey
-    })
-  );
+    });
+  });
+
+  if (!supabase) {
+    return (
+      <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
+        {children}
+      </ThemeProvider>
+    );
+  }
 
   return (
     <ThemeProvider attribute="class" defaultTheme="dark" enableSystem={false}>
